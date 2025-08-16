@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 // Load environment variables from .env (e.g., GITHUB_TOKEN)
 use dotenvy::dotenv;
 use std::sync::Arc;
-use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use serde::{Serialize, Deserialize};
 use reqwest::blocking::Client;
 use reqwest::header::AUTHORIZATION;
@@ -15,10 +14,6 @@ use url::Url;
 #[command(name = "github-dl")]
 #[command(about = "Download GitHub folders", long_about = None)]
 struct Cli {
-    /// Number of parallel jobs (default: 5)
-    #[arg(short, long, default_value_t = 5)]
-    jobs: usize,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -61,11 +56,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Load .env file into environment (e.g., GITHUB_TOKEN)
     dotenv().ok();
     let cli = Cli::parse();
-    // Set up thread pool for parallel downloads
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(cli.jobs)
-        .build()
-        .map_err(|e| format!("Failed to build thread pool: {}", e))?;
     // Build HTTP client and wrap in Arc for thread-safe sharing
     let client = Arc::new(build_client()?);
 
@@ -88,13 +78,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             let meta_path = output.join(".github-dl.json");
             let meta_json = serde_json::to_string_pretty(&meta)?;
             fs::write(&meta_path, meta_json)?;
-            // Perform download with parallelism
-            download_dir(
-                client.clone(),
-                Arc::new(meta),
-                Arc::new(output.clone()),
-                &pool,
-            )?;
+            // Perform download
+            download_dir(&client, &meta, &output)?;
             println!("Downloaded to {}", output.display());
         }
         Commands::Refresh { base_dir } => {
@@ -104,7 +89,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("No downloaded folders found in {}", base_dir.display());
                 return Ok(());
             }
-            for meta_file in metas {
+            for meta_file in &metas {
                 let meta_str = fs::read_to_string(&meta_file)?;
                 let meta: Metadata = serde_json::from_str(&meta_str)?;
                 let meta = Arc::new(meta);
@@ -138,13 +123,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                         fs::remove_file(&path)?;
                     }
                 }
-                // Refresh contents with parallelism
-                download_dir(
-                    client.clone(),
-                    meta.clone(),
-                    Arc::new(local_dir.clone()),
-                    &pool,
-                )?;
+                // Refresh contents
+                download_dir(&client, &meta, &local_dir)?;
                 println!("Refreshed '{}'", meta.url);
             }
         }
@@ -214,7 +194,7 @@ fn download_dir(client: &Client, meta: &Metadata, local_path: &Path) -> Result<(
         match item.r#type.as_str() {
             "file" => {
                 if let Some(dl_url) = item.download_url {
-                    let mut resp_file = client.get(&dl_url).send()?;
+                    let resp_file = client.get(&dl_url).send()?;
                     if !resp_file.status().is_success() {
                         return Err(format!("Failed to download file {}: HTTP {}", dl_url, resp_file.status()).into());
                     }
@@ -247,7 +227,6 @@ fn download_dir(client: &Client, meta: &Metadata, local_path: &Path) -> Result<(
 #[derive(Deserialize)]
 struct Content {
     name: String,
-    path: String,
     #[serde(rename = "type")]
     r#type: String,
     download_url: Option<String>,
