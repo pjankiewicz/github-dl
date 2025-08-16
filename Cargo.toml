@@ -1,0 +1,25 @@
+[package]
+name = "github-dl"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+repository = "https://github.com/pjankiewicz/github-dl"
+homepage = "https://github.com/pjankiewicz/github-dl"
+readme = "README.md"
+keywords = ["github", "cli", "downloader", "files", "folders"]
+categories = ["command-line-utilities", "development-tools"]
+description = "CLI tool to download GitHub folders"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+clap = { version = "4.1", features = ["derive"] }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+url = "2.2"
+dotenvy = "0.15"
+rayon = "1.7"
+
+[[bin]]
+name = "github-dl"
+path = "src/main.rs"
